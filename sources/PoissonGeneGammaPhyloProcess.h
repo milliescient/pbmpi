@@ -136,8 +136,8 @@ class PoissonGeneGammaPhyloProcess : public virtual PoissonPhyloProcess, public 
 	void Trace(ostream& os)	{
 	}
 
-	void SaveTree(string name)	{
-		ofstream os((name + datafile + ".treelist").c_str(),ios_base::app);
+	void SaveTree(string path)	{
+		ofstream os(path.c_str(),ios_base::app);
 		GetLengthTree()->ToStream(os);
 	}
 

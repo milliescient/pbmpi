@@ -35,6 +35,8 @@ OBJS=$(patsubst %.cpp,%.o,$(SRCS))
 ALL_SRCS=$(wildcard *.cpp)
 ALL_OBJS=$(patsubst %.cpp,%.o,$(ALL_SRCS))
 
+MGOBJS= MultiGeneMixture.o MultiGenePoissonSBDPMixture.o MultiGeneGTRSBDPMixture.o
+
 PROGSDIR=../data
 ALL= pb_mpi readpb_mpi tracecomp bpcomp cvrep
 PROGS=$(addprefix $(PROGSDIR)/, $(ALL))
@@ -72,6 +74,9 @@ $(PROGSDIR)/jackknife: JackKnife.o $(OBJS)
 
 $(PROGSDIR)/readpb_mpi: ReadPB.o $(OBJS)
 	$(CC) ReadPB.o $(OBJS) $(LDFLAGS) $(LIBS) -o $@
+
+$(PROGSDIR)/mpb_mpi: MultiGenePB.o $(MGOBJS) $(OBJS)
+	$(CC) MultiGenePB.o $(MGOBJS) $(OBJS) $(LDFLAGS) $(LIBS) -o $@
 
 $(PROGSDIR)/pb_mpi: PB.o $(OBJS)
 	$(CC) PB.o $(OBJS) $(LDFLAGS) $(LIBS) -o $@

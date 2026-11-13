@@ -49,7 +49,13 @@ class GeneProfileProcess : public virtual ProfileProcess {
 	virtual void GlobalUpdateParameters() {}
 	virtual void SlaveUpdateParameters() {}
 
-	virtual double ProfileSuffStatLogProb() {}
+	virtual double ProfileSuffStatLogProb() {return 0;}
+
+	// profiles belong to the multigene hub, so a gene cannot draw one from the prior
+	virtual void PriorSampleProfile()	{
+		cerr << "error: prior sampling of profiles is not available in the multigene model\n";
+		exit(1);
+	}
 
 	virtual void SetMixtureParameters() = 0;
 
@@ -109,8 +115,8 @@ class GenePhyloProcess : public virtual GeneProfileProcess, public virtual Phylo
 	void Trace(ostream& os)	{
 	}
 
-	void SaveTree(string name)	{
-		ofstream os((name + datafile + ".treelist").c_str(),ios_base::app);
+	void SaveTree(string path)	{
+		ofstream os(path.c_str(),ios_base::app);
 		GetLengthTree()->ToStream(os);
 	}
 
