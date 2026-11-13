@@ -19,6 +19,8 @@ along with PhyloBayes. If not, see <http://www.gnu.org/licenses/>.
 #include "Parallel.h"
 #include <string.h>
 
+#include <vector>
+#include <sstream>
 #include "MultiGeneMixture.h"
 
 // <run name>.<alignment file name without its directory>.treelist
@@ -31,34 +33,55 @@ string MultiGeneMixture::GeneTreeFile(int gene)	{
 	return name + "." + base + ".treelist";
 }
 
-// genes named in <run name>.frozen, one alignment file name per line (with or without its
-// directory), keep their trees from then on; read at every start and restart
-void MultiGeneMixture::ReadFrozen()	{
-	genefrozen = new int[Ngene];
-	int n = 0;
+int MultiGeneMixture::FindGene(const string& s)	{
 	for (int gene=0; gene<Ngene; gene++)	{
-		genefrozen[gene] = 0;
+		string base = genename[gene].substr(genename[gene].find_last_of('/') + 1);
+		if ((s == genename[gene]) || (s == base))	{
+			return gene;
+		}
 	}
-	ifstream is((name + ".frozen").c_str());
+	if (! myid)	{
+		cerr << "warning: " << s << " is not one of the alignments\n";
+	}
+	return -1;
+}
+
+// tree effort per gene, read at every start and restart: <run name>.weights has lines
+// "alignment weight" (default 1); a gene in <run name>.frozen has weight 0. A weight w
+// gives floor(w) rounds of branch length and SPR moves per cycle, plus one more with
+// probability w - floor(w); a gene with no round keeps its tree but still updates its
+// mapping and rates.
+void MultiGeneMixture::ReadWeights()	{
+	genetreeweight = new double[Ngene];
+	genefrozen = new int[Ngene];
+	for (int gene=0; gene<Ngene; gene++)	{
+		genetreeweight[gene] = 1.0;
+	}
+	ifstream ws((name + ".weights").c_str());
 	string s;
-	while (is >> s)	{
-		bool found = false;
-		for (int gene=0; gene<Ngene; gene++)	{
-			string base = genename[gene].substr(genename[gene].find_last_of('/') + 1);
-			if ((s == genename[gene]) || (s == base))	{
-				if (! genefrozen[gene])	{
-					n++;
-				}
-				genefrozen[gene] = 1;
-				found = true;
-			}
-		}
-		if ((! found) && (! myid))	{
-			cerr << "warning: " << s << " in " << name << ".frozen is not one of the alignments\n";
+	double w;
+	while (ws >> s >> w)	{
+		int gene = FindGene(s);
+		if (gene >= 0)	{
+			genetreeweight[gene] = (w > 0) ? w : 0;
 		}
 	}
-	if (n && (! myid))	{
-		cerr << n << " of " << Ngene << " genes frozen\n";
+	ifstream fs((name + ".frozen").c_str());
+	while (fs >> s)	{
+		int gene = FindGene(s);
+		if (gene >= 0)	{
+			genetreeweight[gene] = 0;
+		}
+	}
+	int nfrozen = 0;
+	int nweighted = 0;
+	for (int gene=0; gene<Ngene; gene++)	{
+		genefrozen[gene] = (genetreeweight[gene] == 0);
+		nfrozen += genefrozen[gene];
+		nweighted += ((genetreeweight[gene] != 0) && (genetreeweight[gene] != 1.0));
+	}
+	if ((nfrozen || nweighted) && (! myid))	{
+		cerr << nfrozen << " genes frozen, " << nweighted << " with a tree weight other than 1, of " << Ngene << '\n';
 	}
 }
 
@@ -119,6 +142,12 @@ void MultiGeneMixture::AllocateAlignments(string datafile, string treefile, int 
 	}
 	delete tis;
 	tis = 0;
+
+	ReadWeights();
+	for (int gene=0; gene<Ngene; gene++)	{
+		double w = genetreeweight[gene] > 0.2 ? genetreeweight[gene] : 0.2;
+		geneweight[gene] = (int) (geneweight[gene] * w + 0.5);
+	}
 
 	// sort alignments by decreasing size
 	int permut[Ngene];
@@ -230,7 +259,6 @@ void MultiGeneMixture::AllocateAlignments(string datafile, string treefile, int 
 	genealpha = new double[Ngene];
 	genelength = new double[Ngene];
 	delete[] geneweight;
-	ReadFrozen();
 }
 
 double MultiGeneMixture::GetLogLikelihood()	{
@@ -373,18 +401,50 @@ void MultiGeneMixture::GlobalFromStream(istream& is)	{
 	MESSAGE signal = FROMSTREAM;
 	MPI_Bcast(&signal,1,MPI_INT,0,MPI_COMM_WORLD);
 
-	for (int j=1; j<nprocs; j++)	{
-		unsigned int len = 0;
-		is >> len;
-		char* bvector = new char[len];
-		// unsigned char* bvector = new unsigned char[len];
-		for (unsigned int i=0; i<len; i++)	{
-			// is >> bvector[i];
-			is.get(bvector[i]);
+	string tag;
+	is >> tag;
+	if (tag == "MULTIGENE_STATE")	{
+		vector<string> state(Ngene);
+		for (int k=0; k<Ngene; k++)	{
+			int gene;
+			unsigned int glen;
+			is >> gene >> glen;
+			is.get();
+			string g(glen,' ');
+			is.read(&g[0],glen);
+			state[gene] = g;
 		}
-		MPI_Send(&len,1,MPI_INT,j,TAG1,MPI_COMM_WORLD);
-		MPI_Send(bvector,len,MPI_UNSIGNED_CHAR,j,TAG1,MPI_COMM_WORLD);
-		delete[] bvector;
+		for (int j=1; j<nprocs; j++)	{
+			ostringstream os;
+			os << "MGREC\n";
+			for (int gene=0; gene<Ngene; gene++)	{
+				if (genealloc[gene] == j)	{
+					os << gene << '\t' << state[gene].size() << '\n' << state[gene];
+				}
+			}
+			string s = os.str();
+			unsigned int len = s.length();
+			MPI_Send(&len,1,MPI_INT,j,TAG1,MPI_COMM_WORLD);
+			MPI_Send(&s[0],len,MPI_UNSIGNED_CHAR,j,TAG1,MPI_COMM_WORLD);
+		}
+	}
+	else	{
+		// earlier format, one block per worker: needs the same workers and allocation
+		for (int j=1; j<nprocs; j++)	{
+			unsigned int len = 0;
+			if (j == 1)	{
+				len = atoi(tag.c_str());
+			}
+			else	{
+				is >> len;
+			}
+			string s(len,' ');
+			for (unsigned int i=0; i<len; i++)	{
+				is.get(s[i]);
+			}
+			MPI_Send(&len,1,MPI_INT,j,TAG1,MPI_COMM_WORLD);
+			MPI_Send(&s[0],len,MPI_UNSIGNED_CHAR,j,TAG1,MPI_COMM_WORLD);
+		}
 	}
 }
 
@@ -393,39 +453,59 @@ void MultiGeneMixture::SlaveFromStream()	{
 	MPI_Status stat;
 	unsigned int len = 0;
 	MPI_Recv(&len, 1, MPI_INT,0,TAG1,MPI_COMM_WORLD,&stat);
-	char* bvector = new char[len];
-	MPI_Recv(bvector,len,MPI_UNSIGNED_CHAR,0,TAG1,MPI_COMM_WORLD,&stat);
-	ostringstream os;
-	for (unsigned int i=0; i<len; i++)	{
-		os << bvector[i];
+	string s(len,' ');
+	MPI_Recv(&s[0],len,MPI_UNSIGNED_CHAR,0,TAG1,MPI_COMM_WORLD,&stat);
+	if (s.compare(0,6,"MGREC\n") == 0)	{
+		istringstream bs(s.substr(6));
+		int gene;
+		unsigned int glen;
+		while (bs >> gene >> glen)	{
+			bs.get();
+			string g(glen,' ');
+			bs.read(&g[0],glen);
+			istringstream gs(g);
+			process[gene]->FromStream(gs);
+		}
 	}
-	delete[] bvector;
-	string s = os.str();
-	istringstream is(s);
-	for (int gene=0; gene<Ngene; gene++)	{
-		if (genealloc[gene] == myid)	{
-			process[gene]->FromStream(is);
+	else	{
+		istringstream is(s);
+		for (int gene=0; gene<Ngene; gene++)	{
+			if (genealloc[gene] == myid)	{
+				process[gene]->FromStream(is);
+			}
 		}
 	}
 }
 
+// gene states are saved one record per gene, by gene index, so that a restart can give
+// genes to different workers: a line MULTIGENE_STATE, then for each gene its index, the
+// length of its state, a newline and the state itself
 void MultiGeneMixture::GlobalToStream(ostream& os)	{
 
 	assert(myid == 0);
 	MESSAGE signal = TOSTREAM;
 	MPI_Bcast(&signal,1,MPI_INT,0,MPI_COMM_WORLD);
 
+	vector<string> state(Ngene);
 	MPI_Status stat;
 	for (int j=1; j<nprocs; j++)	{
 		unsigned int len = 0;
 		MPI_Recv(&len, 1, MPI_INT,j,TAG1,MPI_COMM_WORLD,&stat);
-		os << len << '\n';
-		char* bvector = new char[len];
-		MPI_Recv(bvector,len,MPI_UNSIGNED_CHAR,j,TAG1,MPI_COMM_WORLD,&stat);
-		for (int i=0; i<len; i++)	{
-			os << bvector[i];
+		string blob(len,' ');
+		MPI_Recv(&blob[0],len,MPI_UNSIGNED_CHAR,j,TAG1,MPI_COMM_WORLD,&stat);
+		istringstream bs(blob);
+		int gene;
+		unsigned int glen;
+		while (bs >> gene >> glen)	{
+			bs.get();
+			string g(glen,' ');
+			bs.read(&g[0],glen);
+			state[gene] = g;
 		}
-		delete[] bvector;
+	}
+	os << "MULTIGENE_STATE\n";
+	for (int gene=0; gene<Ngene; gene++)	{
+		os << gene << '\t' << state[gene].size() << '\n' << state[gene];
 	}
 }
 
@@ -433,28 +513,32 @@ void MultiGeneMixture::SlaveToStream()	{
 	ostringstream os;
 	for (int gene=0; gene<Ngene; gene++)	{
 		if (genealloc[gene] == myid)	{
-			process[gene]->ToStream(os);
+			ostringstream gs;
+			process[gene]->ToStream(gs);
+			string g = gs.str();
+			os << gene << '\t' << g.size() << '\n' << g;
 		}
 	}
 	string s = os.str();
 	unsigned int len = s.length();
-	char* bvector = new char[len];
-	for (unsigned int i=0; i<len; i++)	{
-		bvector[i] = s[i];
-	}
 	MPI_Send(&len,1,MPI_INT,0,TAG1,MPI_COMM_WORLD);
-	MPI_Send(bvector,len,MPI_UNSIGNED_CHAR,0,TAG1,MPI_COMM_WORLD);
-	delete[] bvector;
+	MPI_Send(&s[0],len,MPI_UNSIGNED_CHAR,0,TAG1,MPI_COMM_WORLD);
 }
 
 void MultiGeneMixture::SlaveGeneMove()	{
 	for (int gene=0; gene<Ngene; gene++)	{
 		if (genealloc[gene] == myid)	{
-			if (genefrozen[gene])	{
-				process[gene]->FrozenMove();
+			double w = genetreeweight[gene];
+			int n = (int) w;
+			if (rnd::GetRandom().Uniform() < w - n)	{
+				n++;
+			}
+			if (n)	{
+				process[gene]->SetTreeReps(n);
+				process[gene]->Move();
 			}
 			else	{
-				process[gene]->Move();
+				process[gene]->FrozenMove();
 			}
 		}
 	}

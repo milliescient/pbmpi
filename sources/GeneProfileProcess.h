@@ -102,6 +102,11 @@ class GenePhyloProcess : public virtual GeneProfileProcess, public virtual Phylo
 		return gibbsfactor;
 	}
 
+	// rounds of branch length and SPR moves in the next Move
+	void SetTreeReps(int n)	{
+		treereps = n;
+	}
+
 	// a frozen gene keeps its tree; only its mapping and rates are updated
 	virtual double FrozenMove()	{
 		return 1;
@@ -137,6 +142,7 @@ class GenePhyloProcess : public virtual GeneProfileProcess, public virtual Phylo
 	}
 
 	double gibbsfactor;
+	int treereps = 1;
 
 };
 #endif

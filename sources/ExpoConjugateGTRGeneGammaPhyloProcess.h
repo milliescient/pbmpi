@@ -209,15 +209,17 @@ class ExpoConjugateGTRGeneGammaPhyloProcess : public virtual ExpoConjugateGTRPhy
 		chronototal.Start();
 		propchrono.Start();
 		// cerr << "branch\n";
-		NonMPIBranchLengthMove(tuning);
-		NonMPIBranchLengthMove(0.1 * tuning);
-		if (! fixtopo)	{
-			int nrep = (int) (GetGibbsFactor());
-			for (int rep=0; rep<nrep; rep++)	{
-				NonMPIGibbsSPR();
+		for (int round=0; round<treereps; round++)	{
+			NonMPIBranchLengthMove(tuning);
+			NonMPIBranchLengthMove(0.1 * tuning);
+			if (! fixtopo)	{
+				int nrep = (int) (GetGibbsFactor());
+				for (int rep=0; rep<nrep; rep++)	{
+					NonMPIGibbsSPR();
+				}
 			}
+			// cerr << "gibbs ok\n";
 		}
-		// cerr << "gibbs ok\n";
 		propchrono.Stop();
 		
 		// cerr << "collapse\n";
