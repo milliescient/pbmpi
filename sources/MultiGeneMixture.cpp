@@ -31,6 +31,37 @@ string MultiGeneMixture::GeneTreeFile(int gene)	{
 	return name + "." + base + ".treelist";
 }
 
+// genes named in <run name>.frozen, one alignment file name per line (with or without its
+// directory), keep their trees from then on; read at every start and restart
+void MultiGeneMixture::ReadFrozen()	{
+	genefrozen = new int[Ngene];
+	int n = 0;
+	for (int gene=0; gene<Ngene; gene++)	{
+		genefrozen[gene] = 0;
+	}
+	ifstream is((name + ".frozen").c_str());
+	string s;
+	while (is >> s)	{
+		bool found = false;
+		for (int gene=0; gene<Ngene; gene++)	{
+			string base = genename[gene].substr(genename[gene].find_last_of('/') + 1);
+			if ((s == genename[gene]) || (s == base))	{
+				if (! genefrozen[gene])	{
+					n++;
+				}
+				genefrozen[gene] = 1;
+				found = true;
+			}
+		}
+		if ((! found) && (! myid))	{
+			cerr << "warning: " << s << " in " << name << ".frozen is not one of the alignments\n";
+		}
+	}
+	if (n && (! myid))	{
+		cerr << n << " of " << Ngene << " genes frozen\n";
+	}
+}
+
 void MultiGeneMixture::MakeFiles()	{
 	for (int gene=0; gene<Ngene; gene++)	{
 		ofstream os(GeneTreeFile(gene).c_str());
@@ -199,6 +230,7 @@ void MultiGeneMixture::AllocateAlignments(string datafile, string treefile, int 
 	genealpha = new double[Ngene];
 	genelength = new double[Ngene];
 	delete[] geneweight;
+	ReadFrozen();
 }
 
 double MultiGeneMixture::GetLogLikelihood()	{
@@ -418,7 +450,12 @@ void MultiGeneMixture::SlaveToStream()	{
 void MultiGeneMixture::SlaveGeneMove()	{
 	for (int gene=0; gene<Ngene; gene++)	{
 		if (genealloc[gene] == myid)	{
-			process[gene]->Move();
+			if (genefrozen[gene])	{
+				process[gene]->FrozenMove();
+			}
+			else	{
+				process[gene]->Move();
+			}
 		}
 	}
 }
@@ -449,7 +486,7 @@ void MultiGeneMixture::SlaveCollapse()	{
 
 void MultiGeneMixture::SlaveSaveTrees()	{
 	for (int gene=0; gene<Ngene; gene++)	{
-		if (genealloc[gene] == myid)	{
+		if ((genealloc[gene] == myid) && (! genefrozen[gene]))	{
 			process[gene]->SaveTree(GeneTreeFile(gene));
 		}
 	}

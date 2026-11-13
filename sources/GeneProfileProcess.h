@@ -102,6 +102,11 @@ class GenePhyloProcess : public virtual GeneProfileProcess, public virtual Phylo
 		return gibbsfactor;
 	}
 
+	// a frozen gene keeps its tree; only its mapping and rates are updated
+	virtual double FrozenMove()	{
+		return 1;
+	}
+
 	virtual void GlobalUpdateSiteProfileSuffStat() {}
 	virtual void SlaveUpdateSiteProfileSuffStat() {}
 

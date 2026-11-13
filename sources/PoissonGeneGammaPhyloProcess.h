@@ -141,6 +141,15 @@ class PoissonGeneGammaPhyloProcess : public virtual PoissonPhyloProcess, public 
 		GetLengthTree()->ToStream(os);
 	}
 
+	double FrozenMove()	{
+		chronototal.Start();
+		Collapse();
+		DGamRateProcess::NonMPIMove(0.3,10);
+		DGamRateProcess::NonMPIMove(0.03,10);
+		chronototal.Stop();
+		return 1;
+	}
+
 	double Move(double tuning = 1.0)	{
 
 		// Unfold();

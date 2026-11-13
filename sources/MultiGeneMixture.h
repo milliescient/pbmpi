@@ -117,6 +117,7 @@ class MultiGeneMixture : public virtual SBDPProfileProcess	{
 	void WaitLoop();
 	void SaveTrees();
 	string GeneTreeFile(int gene);
+	void ReadFrozen();
 	void SlaveSaveTrees();
 
 	protected:
@@ -188,6 +189,7 @@ class MultiGeneMixture : public virtual SBDPProfileProcess	{
 	StateSpace* statespace;
 	int Ngene;
 	int* genealloc;
+	int* genefrozen;
 	int* genesize;
 	string* genename;
 	string* treename;
